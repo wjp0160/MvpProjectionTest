@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <style>
+      #webglContainer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        border: solid 1px gray;
+        width: 800px;
+        height: 600px;
+      }
+      #canvasContainer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 800px;
+        height: 600px;
+      }
+    </style>
+    <script src="./matrix.js"></script>
+  </head>
+  <body onload="main()">
+    <canvas id="webglContainer" width="800" height="600"></canvas>
+    <canvas id="canvasContainer" width="800" height="600"></canvas>
+    <script>
+      var gl_SrcVS = `
+            attribute vec4 a_Position;
+            uniform mat4 u_MvpMatrix;
+            void main(){
+                gl_Position = u_MvpMatrix * a_Position;
+            }`;
+
+      var gl_SrcFS = `
+            precision lowp float;
+            void main(){
+                gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+            }`;
+
+      function main() {
+        var gl = getGL();
+        var sp = initShader(gl, gl_SrcVS, gl_SrcFS);
+
+        var projMat = getPerspectiveProjection(45, 1, 7, 100);
+        var viewMat = lookAt(10, 10, 20, 0, 0, 0, 0, 1, 0);
+        var mvpMat = multiMatrix44(projMat, viewMat);
+
+        var u_MvpMatrix = gl.getUniformLocation(sp, "u_MvpMatrix");
+        gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMat);
+
+        const cubePoints = [
+          3.0, 3.0, 3.0, -3.0, 3.0, 3.0, -3.0, -3.0, 3.0, 3.0, -3.0, 3.0, 3.0,
+          -3.0, -3.0, 3.0, 3.0, -3.0, -3.0, 3.0, -3.0, -3.0, -3.0, -3.0,
+        ];
+        var n = initVertexBuffers(gl, sp, cubePoints);
+        draw(gl, n);
+
+        testMvpProjection(mvpMat, cubePoints);
+      }
+
+      function getGL() {
+        var cavans = document.getElementById("webglContainer");
+        return (
+          cavans.getContext("webgl") || cavans.getContext("experimental-webgl")
+        );
+      }
+
+      function initShader(gl, srcVS, srcFS) {
+        var sp = createProgram(gl, srcVS, srcFS);
+        gl.useProgram(sp);
+        return sp;
+      }
+
+      function createProgram(gl, srcVS, srcFS) {
+        var vs = loadShader(gl, gl.VERTEX_SHADER, srcVS);
+        var fs = loadShader(gl, gl.FRAGMENT_SHADER, srcFS);
+
+        var sp = gl.createProgram();
+        gl.attachShader(sp, vs);
+        gl.attachShader(sp, fs);
+
+        // 1 对应vs和fs的vary变量 2 vs中varying变量必须赋值 3 共享vs和fs中相同的uniform变量 4 各种类型变量的数量检查
+        gl.linkProgram(sp);
+        if (!gl.getProgramParameter(sp, gl.LINK_STATUS)) {
+          console.log(gl.getProgramInfoLog(sp));
+          return;
+        }
+        return sp;
+      }
+
+      function loadShader(gl, type, shaderSrc) {
+        var shader = gl.createShader(type);
+        gl.shaderSource(shader, shaderSrc);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          console.log(gl.getShaderInfoLog(shader));
+          return;
+        }
+        return shader;
+      }
+
+      function initVertexBuffers(gl, sp, cubePoints) {
+        // 立方体的六个面及其颜色
+        var vertices = new Float32Array(cubePoints);
+
+        // 立方体的六个面，每个面有两个三角形组成
+        var indices = new Uint8Array([
+          0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 1, 6, 7, 1, 7,
+          2, 7, 4, 3, 7, 3, 2, 4, 7, 6, 4, 6, 5,
+        ]);
+        var FSIZE = vertices.BYTES_PER_ELEMENT;
+
+        var vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+        var a_Position = gl.getAttribLocation(sp, "a_Position");
+        gl.vertexAttribPointer(a_Position, 3, gl.FLOAT, false, FSIZE * 3, 0);
+        gl.enableVertexAttribArray(a_Position);
+
+        var ibo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+        return indices.length;
+      }
+
+      function draw(gl, n) {
+        gl.clearColor(1.0, 1.0, 1.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, 0);
+
+        gl.drawElements(gl.LINE_STRIP, n, gl.UNSIGNED_BYTE, 0);
+        // gl.drawElements(gl.LINES, n, gl.UNSIGNED_BYTE, 0);
+        // gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
+      }
+
+      function testMvpProjection(mvpMat, cubePoints) {
+        const prjPts = [];
+        for (let i = 0, len = cubePoints.length; i < len; i += 3) {
+          const pt = [cubePoints[i], cubePoints[i + 1], cubePoints[i + 2], 1];
+          const prjPt = PointMultiplyMatrix(mvpMat, pt);
+          //   console.log("prjPt: ", prjPt);
+          prjPts.push(prjPt);
+        }
+
+        drawCanvas(prjPts);
+      }
+
+      function drawCanvas(prjPts) {
+        const ctx = document.getElementById("canvasContainer").getContext("2d");
+
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        let w = prjPts[0][3];
+        // 注意屏幕坐标y值与NDC坐标的里面的y值方向相反，需要高度减一下当前值
+        ctx.moveTo(
+          (prjPts[0][0] / w + 1) * 0.5 * 800,
+          (1 - (prjPts[0][1] / w + 1) * 0.5) * 600
+        );
+        for (let i = 1, len = prjPts.length; i < len; i++) {
+          w = prjPts[i][3];
+          const x = (prjPts[i][0] / w + 1) * 0.5 * 800;
+          const y = (1 - (prjPts[i][1] / w + 1) * 0.5) * 600;
+
+          const z = prjPts[i][2] / w;
+          console.log(x, y, z, w);
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    </script>
+  </body>
+</html>
